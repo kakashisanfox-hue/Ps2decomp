@@ -1,0 +1,58 @@
+name: PS2Recomp Generated C++ Gate
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/generated-cpp.yml'
+jobs:
+  generated-cpp:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ran-j/PS2Recomp
+          submodules: recursive
+          path: upstream
+      - name: Install host build and MIPS assembler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ clang lld file
+      - name: Compile analyzer and recompiler
+        run: |
+          cmake -S upstream -B upstream/build -G Ninja -DPS2X_BUILD_RUNTIME=OFF -DPS2X_BUILD_TEST=OFF -DPS2X_BUILD_STUDIO=OFF -DPS2X_BUILD_RECOMP=ON -DPS2X_BUILD_ANALYZER=ON
+          cmake --build upstream/build --parallel 2
+      - name: Create synthetic MIPS ELF
+        run: |
+          cat >/tmp/smoke.s <<'EOF'
+          .set noreorder
+          .text
+          .globl _start
+          _start:
+            addiu $v0, $zero, 42
+            jr $ra
+            nop
+          EOF
+          clang --target=mipsel-linux-gnu -c /tmp/smoke.s -o /tmp/smoke.o
+          ld.lld -m elf32ltsmip -e _start -Ttext 0x00100000 /tmp/smoke.o -o /tmp/smoke.elf
+      - name: Analyze and recompile ELF
+        run: |
+          ANALYZER=$(find upstream/build -type f -name ps2_analyzer -executable | head -1)
+          RECOMP=$(find upstream/build -type f -name ps2_recomp -executable | head -1)
+          test -n "$ANALYZER" && test -n "$RECOMP"
+          "$ANALYZER" /tmp/smoke.elf /tmp/smoke.toml
+          test -s /tmp/smoke.toml
+          cat /tmp/smoke.toml
+          "$RECOMP" /tmp/smoke.toml
+      - name: Confirm generated C++ is present
+        run: |
+          find /tmp upstream -type f \( -name '*.cpp' -o -name '*.cc' \) -newermt '10 minutes ago' | grep -v -E '/(build|\.git)/' | tee /tmp/candidates.txt || true
+          echo 'This test invokes PS2Recomp on a synthetic ELF. It does NOT prove generated code links to the Android app.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No proprietary game binary is used.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload analyzer config
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-mips-config
+          path: /tmp/smoke.toml
+          retention-days: 3
