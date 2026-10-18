@@ -46,7 +46,9 @@ jobs:
           import pathlib, subprocess
           import tomllib
           cfg=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
-          print('Config:', cfg.get('general'))
+          print('Config:', cfg.get('general'), flush=True)
+          print('Working directory:', pathlib.Path.cwd(), flush=True)
+          print('Output setting:', cfg.get('general', {}).get('output'), flush=True)
           stamp=pathlib.Path('/tmp/recomp-start.marker').stat().st_mtime_ns
           units=[]
           for root in (pathlib.Path('/tmp'), pathlib.Path('upstream')):
@@ -56,7 +58,12 @@ jobs:
                   s=p.stat()
                   if s.st_size and s.st_mtime_ns > stamp:
                       units.append(p)
-          print('New C++ translation units:', [str(p) for p in units])
+          print('New C++ translation units:', [str(p) for p in units], flush=True)
+          if not units:
+              for root in (pathlib.Path('/tmp'), pathlib.Path('upstream')):
+                  print('Candidate files in', root, flush=True)
+                  for p in list(root.rglob('*.cpp'))[:40]:
+                      print(' ', p, 'bytes=', p.stat().st_size, flush=True)
           if not units:
               raise SystemExit('FAIL: no new nonempty .cpp translation units generated')
           # This test intentionally fails if generated code needs more runtime headers
@@ -66,7 +73,12 @@ jobs:
                    '-Iupstream/ps2xRuntime/include','-Iupstream/ps2xRecomp/include',
                    '-Iupstream/third_party','-Iupstream',str(unit)]
               print('Running:', ' '.join(cmd), flush=True)
-              subprocess.run(cmd,check=True)
+              result=subprocess.run(cmd, capture_output=True, text=True)
+              print('Compiler exit code:', result.returncode, flush=True)
+              print('Compiler stdout:', result.stdout[-12000:], flush=True)
+              print('Compiler stderr:', result.stderr[-20000:], flush=True)
+              if result.returncode:
+                  raise SystemExit('FAIL: generated C++ syntax check failed; compiler diagnostics above')
           print('PASS: generated C++ translation units passed host syntax checks.')
           PY
       - name: Report scope
