@@ -1,0 +1,22 @@
+name: ELF Analyzer Check
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/elf_inspect.py'
+      - '.github/workflows/elf-check.yml'
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Python syntax
+        run: python3 -m py_compile tools/elf_inspect.py
+      - name: Check command-line help
+        run: python3 tools/elf_inspect.py --help
+      - name: Verify no game binaries are committed
+        run: |
+          if git ls-files | grep -Ei '(^|/)(SLES_|SLUS_|SCES_|SCUS_)|\.(iso|ISO)$'; then
+            echo "Game binaries must not be committed"
+            exit 1
+          fi
