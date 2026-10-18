@@ -268,23 +268,18 @@ jobs:
           report=[]
           for unit in units:
               source=unit.read_text(errors='replace')
-              for match in re.finditer(r'sub_[0-9a-fA-F]{6,}(?:_0x[0-9a-fA-F]+)?\\s*\\(',source):
-                  start=match.start()
-                  opening=source.find('(',start)
-                  closing=source.find(')',opening)
-                  if closing<0: continue
-                  prefix=source[max(0,start-180):start].split(';')[-1].split('}')[-1].strip()
-                  signature=source[start:closing+1].replace('\\n',' ')
-                  report.append(f'{unit}: {prefix[-120:]} {signature}')
+              for line_number,line in enumerate(source.splitlines(),1):
+                  if 'sub_' in line and '(' in line:
+                      report.append(f'{unit}:{line_number}: {line.strip()}')
           report=sorted(set(report))
           if not report:
               for unit in units:
                   print(f'--- {unit} ---')
                   print(unit.read_text(errors='replace')[:4500])
-              raise SystemExit('No generated function references found; inspect source')
-          print('\\n'.join(report))
-          pathlib.Path('/tmp/test18-generated-abi.txt').write_text('\\n'.join(report)+'\\n')
-          print('PASS: generated function call/declaration candidates extracted; exact ABI still requires validation')
+              raise SystemExit('No sub_ function signature lines found; inspect source preview')
+          print(*report,sep=chr(10))
+          pathlib.Path('/tmp/test18-generated-abi.txt').write_text(chr(10).join(report)+chr(10))
+          print('PASS: generated function signature candidates collected; ABI not yet validated')
           PY
       - name: Upload Test 18 generated ABI report
         if: always()
