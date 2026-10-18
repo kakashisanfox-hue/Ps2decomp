@@ -1,0 +1,41 @@
+name: PS2Recomp Android ARM64 Runtime
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/android-runtime.yml'
+jobs:
+  android-arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Checkout upstream with submodules
+        uses: actions/checkout@v4
+        with:
+          repository: ran-j/PS2Recomp
+          submodules: recursive
+          path: upstream
+      - name: Configure Android ARM64 with NDK
+        env:
+          NDK: ${{ env.ANDROID_NDK_HOME }}
+        run: |
+          test -f "$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake"
+          cmake -S upstream -B upstream/android-build -G Ninja \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-26 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPS2X_BUILD_RUNTIME=ON \
+            -DPS2X_BUILD_RECOMP=OFF \
+            -DPS2X_BUILD_ANALYZER=OFF \
+            -DPS2X_BUILD_TEST=OFF \
+            -DPS2X_BUILD_STUDIO=OFF
+      - name: Build runtime
+        run: cmake --build upstream/android-build --parallel 2
+      - name: Report ARM64 outputs
+        if: always()
+        run: |
+          echo "Android ARM64 runtime compile test only; not a playable APK." >> "$GITHUB_STEP_SUMMARY"
+          if test -d upstream/android-build; then
+            find upstream/android-build -type f \( -name '*.so' -o -name '*.a' \) | head -60 >> "$GITHUB_STEP_SUMMARY" || true
+          fi
