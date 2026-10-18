@@ -70,7 +70,7 @@ jobs:
           # or configuration. Never silently treat missing integration as success.
           for unit in units:
               cmd=['clang++','-std=c++20','-fsyntax-only',
-                   '-Iupstream/ps2xRuntime/include','-Iupstream/ps2xRecomp/include',
+                   '-Iupstream/ps2xRuntime/include','-Iupstream/ps2xIOP/include','-Iupstream/ps2xRecomp/include',
                    '-Iupstream/third_party','-Iupstream',str(unit)]
               print('Running:', ' '.join(cmd), flush=True)
               result=subprocess.run(cmd, capture_output=True, text=True)
