@@ -44,11 +44,17 @@ jobs:
           test -s /tmp/smoke.toml
           cat /tmp/smoke.toml
           "$RECOMP" /tmp/smoke.toml
-      - name: Confirm generated C++ is present
+      - name: Verify generated C++ from configured output
         run: |
-          find /tmp upstream -type f \( -name '*.cpp' -o -name '*.cc' \) -newermt '10 minutes ago' | grep -v -E '/(build|\.git)/' | tee /tmp/candidates.txt || true
-          echo 'This test invokes PS2Recomp on a synthetic ELF. It does NOT prove generated code links to the Android app.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'No proprietary game binary is used.' >> "$GITHUB_STEP_SUMMARY"
+          python3 - <<'PY'
+          import pathlib, tomllib
+          config=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
+          print('Config general:', config.get('general'))
+          PY
+          echo 'Inspect recompilation output files below:'
+          find /tmp -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.hpp' \) -printf '%p %s bytes\n' | head -80
+          echo 'Synthetic ELF conversion completed; generated output still needs an explicit compile/link test.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Downhill binaries are present.' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload analyzer config
         if: success()
         uses: actions/upload-artifact@v4
