@@ -43,18 +43,44 @@ jobs:
           "$ANALYZER" /tmp/smoke.elf /tmp/smoke.toml
           test -s /tmp/smoke.toml
           cat /tmp/smoke.toml
+          touch /tmp/ps2recomp-generation-start.marker
           "$RECOMP" /tmp/smoke.toml
-      - name: Verify generated C++ from configured output
+      - name: Require freshly generated C++ output
         run: |
           python3 - <<'PY'
           import pathlib, tomllib
-          config=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
-          print('Config general:', config.get('general'))
+          config = tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
+          print('Analyzer config general:', config.get('general'))
+          marker = pathlib.Path('/tmp/ps2recomp-generation-start.marker').stat().st_mtime_ns
+          roots = [pathlib.Path('/tmp'), pathlib.Path('upstream')]
+          outputs = []
+          for root in roots:
+              for p in root.rglob('*'):
+                  if p.suffix not in ('.cpp', '.cc', '.cxx', '.hpp', '.h'):
+                      continue
+                  if '.git' in p.parts:
+                      continue
+                  try:
+                      s = p.stat()
+                  except OSError:
+                      continue
+                  if s.st_size > 0 and s.st_mtime_ns > marker:
+                      outputs.append((str(p), s.st_size))
+          print('Fresh C++ outputs:', outputs[:100])
+          if not outputs:
+              raise SystemExit('FAIL: PS2Recomp did not produce any nonempty fresh C++ files.')
+          with open('/tmp/generated-files.txt', 'w') as f:
+              for name, size in outputs:
+                  f.write(f'{name} ({size} bytes)\\n')
           PY
-          echo 'Inspect recompilation output files below:'
-          find /tmp -type f \( -name '*.cpp' -o -name '*.cc' -o -name '*.hpp' \) -printf '%p %s bytes\n' | head -80
-          echo 'Synthetic ELF conversion completed; generated output still needs an explicit compile/link test.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'No Downhill binaries are present.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Fresh nonempty C++ output detected. Android linking remains untested.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload generated C++ manifest
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-generated-cpp-manifest
+          path: /tmp/generated-files.txt
+          retention-days: 3
       - name: Upload analyzer config
         if: success()
         uses: actions/upload-artifact@v4
