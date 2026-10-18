@@ -242,7 +242,9 @@ jobs:
           generated='\\n'.join(p.read_text(errors='replace') for p in sources)
           names=sorted(set(re.findall(r'\\bsub_[0-9a-fA-F]{6,}\\b',generated)))
           print('Generated function identifiers:',names[:30])
-          assert names, 'No generated MIPS function identifiers detected'
+          if not names:
+              print('Generated C++ preview:',generated[:6000])
+              raise SystemExit('No generated MIPS function identifiers detected; inspect generated source preview')
           ndk=__import__('os').environ.get('ANDROID_NDK_HOME') or __import__('os').environ.get('ANDROID_NDK_ROOT')
           assert ndk, 'NDK missing'
           tools=list(pathlib.Path(ndk).glob('toolchains/llvm/prebuilt/*/bin/llvm-nm'))
