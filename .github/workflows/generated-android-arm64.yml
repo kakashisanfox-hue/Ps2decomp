@@ -100,6 +100,42 @@ jobs:
             2>&1 | tee /tmp/linker-diagnostics.txt
           test -s /tmp/libdownhill_generated_test.so
           file /tmp/libdownhill_generated_test.so
+      - name: Checkout Android application project
+        uses: actions/checkout@v4
+        with:
+          path: project
+      - name: Install Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install Gradle 8.10.2
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Package generated ARM64 shared library into APK
+        run: |
+          set -euo pipefail
+          mkdir -p project/android/app/src/main/jniLibs/arm64-v8a
+          cp /tmp/libdownhill_generated_test.so project/android/app/src/main/jniLibs/arm64-v8a/libdownhill_generated_test.so
+          cd project/android
+          gradle :app:assembleDebug --no-daemon
+      - name: Verify APK includes generated ARM64 library
+        run: |
+          set -euo pipefail
+          APK=project/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$APK"
+          unzip -l "$APK" | tee /tmp/test14-apk-contents.txt
+          grep -F 'lib/arm64-v8a/libdownhill_generated_test.so' /tmp/test14-apk-contents.txt
+          grep -F 'lib/arm64-v8a/libdownhill_bridge.so' /tmp/test14-apk-contents.txt
+          echo 'PASS: generated ARM64 library packaged in research APK; no runtime loading or invocation has been verified.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload Test 14 research APK
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test14-synthetic-native-research-apk
+          path: project/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 3
       - name: Upload linker diagnostics on failure
         if: failure()
         uses: actions/upload-artifact@v4
@@ -113,4 +149,5 @@ jobs:
         run: |
           echo 'Test 12 cross-compiles PS2Recomp-generated synthetic ELF C++ into Android ARM64 object files.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Test 13 attempts a strict shared-library link; unresolved PS2 runtime dependencies cause failure.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'This is not an Android APK integration or playable Downhill build.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Test 14 verifies packaging into an APK, NOT loading or executing the generated library.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is not a playable Downhill build.' >> "$GITHUB_STEP_SUMMARY"
