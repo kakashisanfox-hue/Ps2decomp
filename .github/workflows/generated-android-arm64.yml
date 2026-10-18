@@ -156,7 +156,7 @@ jobs:
           lib='/tmp/libdownhill_generated_test.so'
           apk='project/android/app/build/outputs/apk/debug/app-debug.apk'
           blob=open(lib,'rb').read()
-          assert blob[:4]==b'\\x7fELF', 'Not an ELF file'
+          assert blob[:4]==bytes([0x7f, 0x45, 0x4c, 0x46]), f'Not an ELF file: first bytes={blob[:16].hex()}'
           assert blob[4]==2 and blob[5]==1, 'Expected ELF64 little endian'
           assert struct.unpack_from('<H',blob,16)[0]==3, 'Expected shared object (ET_DYN)'
           assert struct.unpack_from('<H',blob,18)[0]==183, 'Expected AArch64 machine'
