@@ -1,0 +1,81 @@
+name: PS2Recomp Generated C++ Android ARM64 Gate
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/generated-android-arm64.yml'
+jobs:
+  arm64-syntax:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ran-j/PS2Recomp
+          submodules: recursive
+          path: upstream
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ clang lld python3
+      - name: Build host recompilation tools
+        run: |
+          cmake -S upstream -B upstream/build -G Ninja -DPS2X_BUILD_RUNTIME=OFF -DPS2X_BUILD_TEST=OFF -DPS2X_BUILD_STUDIO=OFF -DPS2X_BUILD_RECOMP=ON -DPS2X_BUILD_ANALYZER=ON
+          cmake --build upstream/build --parallel 2
+      - name: Generate C++ from synthetic MIPS ELF
+        run: |
+          cat >/tmp/smoke.s <<'EOF'
+          .set noreorder
+          .text
+          .globl _start
+          _start:
+            addiu $v0, $zero, 42
+            jr $ra
+            nop
+          EOF
+          clang --target=mipsel-linux-gnu -c /tmp/smoke.s -o /tmp/smoke.o
+          ld.lld -m elf32ltsmip -e _start -Ttext 0x00100000 /tmp/smoke.o -o /tmp/smoke.elf
+          ANALYZER=$(find upstream/build -type f -name ps2_analyzer -executable | head -1)
+          RECOMP=$(find upstream/build -type f -name ps2_recomp -executable | head -1)
+          "$ANALYZER" /tmp/smoke.elf /tmp/smoke.toml
+          "$RECOMP" /tmp/smoke.toml
+      - name: Cross-compile generated C++ to Android ARM64 objects
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, subprocess, tomllib
+          config=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
+          out=pathlib.Path(config['general']['output'])
+          if not out.is_absolute():
+              out=pathlib.Path.cwd()/out
+          print('Generated output:', out, flush=True)
+          units=sorted(p for p in out.rglob('*.cpp') if p.stat().st_size)
+          if not units:
+              raise SystemExit('FAIL: no generated C++ translation units')
+          ndk_root=os.environ.get('ANDROID_NDK_HOME') or os.environ.get('ANDROID_NDK_ROOT')
+          if not ndk_root:
+              raise SystemExit('FAIL: no Android NDK in runner environment')
+          compilers=list(pathlib.Path(ndk_root).glob('toolchains/llvm/prebuilt/*/bin/aarch64-linux-android26-clang++'))
+          if not compilers:
+              raise SystemExit('FAIL: Android ARM64 NDK clang++ not found')
+          headers=list(pathlib.Path('upstream').rglob('Unimplemented.h'))
+          includes=[out, pathlib.Path('upstream/ps2xRuntime/include'),
+                    pathlib.Path('upstream/ps2xIOP/include'), pathlib.Path('upstream/ps2xRecomp/include'),
+                    pathlib.Path('upstream/third_party'), pathlib.Path('upstream')]
+          includes += [h.parent.parent for h in headers if h.parent.name=='Stubs']
+          pathlib.Path('/tmp/arm64-objects').mkdir(exist_ok=True)
+          for i, unit in enumerate(units):
+              obj=pathlib.Path('/tmp/arm64-objects')/f'generated_{i}.o'
+              cmd=[str(compilers[0]),'-std=c++20','-c',str(unit),'-o',str(obj)]
+              for inc in includes:
+                  cmd += ['-I',str(inc)]
+              print('Compiling',unit, '->',obj,flush=True)
+              subprocess.run(cmd,check=True)
+              if not obj.exists() or obj.stat().st_size==0:
+                  raise SystemExit('FAIL: no ARM64 object output')
+          print('PASS: compiled',len(units),'generated C++ files into Android ARM64 objects',flush=True)
+          PY
+      - name: Report
+        if: always()
+        run: |
+          echo 'Test 12 cross-compiles PS2Recomp-generated synthetic ELF C++ into Android ARM64 object files.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is not an Android APK integration or playable Downhill build.' >> "$GITHUB_STEP_SUMMARY"
