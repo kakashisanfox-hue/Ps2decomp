@@ -129,6 +129,40 @@ jobs:
           grep -F 'lib/arm64-v8a/libdownhill_generated_test.so' /tmp/test14-apk-contents.txt
           grep -F 'lib/arm64-v8a/libdownhill_bridge.so' /tmp/test14-apk-contents.txt
           echo 'PASS: generated ARM64 library packaged in research APK; no runtime loading or invocation has been verified.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Test 15 - prepare Android load probe
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('project/android/app/src/main/java/dev/downhill/nativeport/MainActivity.java')
+          source=p.read_text()
+          before='static { System.loadLibrary("downhill_bridge"); }'
+          after='static { System.loadLibrary("downhill_generated_test"); System.loadLibrary("downhill_bridge"); }'
+          if before not in source:
+              raise SystemExit('FAIL: expected JNI library loader not found')
+          p.write_text(source.replace(before,after))
+          print('Added generated library load probe to test-only APK')
+          PY
+          cd project/android
+          gradle :app:assembleDebug --no-daemon
+      - name: Test 15 - boot ARM64 Android emulator and launch APK
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: arm64-v8a
+          target: google_apis
+          profile: pixel_6
+          disable-animations: true
+          emulator-boot-timeout: 900
+          script: |
+            adb install -r project/android/app/build/outputs/apk/debug/app-debug.apk
+            adb shell am start -W -n dev.downhill.nativeport/.MainActivity
+            sleep 8
+            adb shell pidof dev.downhill.nativeport
+            if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|UnsatisfiedLinkError'; then
+              echo 'FAIL: Android runtime reported a crash or native load error'
+              exit 1
+            fi
+            echo 'PASS: Android process stayed alive after native library load'
       - name: Upload Test 14 research APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -150,4 +184,5 @@ jobs:
           echo 'Test 12 cross-compiles PS2Recomp-generated synthetic ELF C++ into Android ARM64 object files.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Test 13 attempts a strict shared-library link; unresolved PS2 runtime dependencies cause failure.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Test 14 verifies packaging into an APK, NOT loading or executing the generated library.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Test 15 attempts to load generated library in an Android emulator; does not call generated game functions.' >> "$GITHUB_STEP_SUMMARY"
           echo 'This is not a playable Downhill build.' >> "$GITHUB_STEP_SUMMARY"
