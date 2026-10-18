@@ -268,7 +268,7 @@ jobs:
           report=[]
           for unit in units:
               source=unit.read_text(errors='replace')
-              for match in re.finditer(r'\\b(?:void|int|uint32_t|int32_t)\\s+(sub_[0-9a-fA-F_]+)\\s*\\(([^)]*)\\)\\s*\\{',source):
+              for match in re.finditer(r'\b(?:void|int|uint32_t|int32_t)\s+(sub_[0-9a-fA-F_]+)\s*\(([^)]*)\)\s*\{',source):
                   name,args=match.groups()
                   report.append(f'{unit}: {name}({args})')
           if not report:
