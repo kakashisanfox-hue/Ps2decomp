@@ -240,7 +240,7 @@ jobs:
           sources=list(out.rglob('*.cpp'))
           assert sources, 'PS2Recomp did not produce source files'
           generated='\\n'.join(p.read_text(errors='replace') for p in sources)
-          names=sorted(set(re.findall(r'\\bsub_[0-9a-fA-F]{6,}\\b',generated)))
+          names=sorted(set(re.findall(r'\bsub_[0-9a-fA-F]{6,}(?:_0x[0-9a-fA-F]+)?\b',generated)))
           print('Generated function identifiers:',names[:30])
           if not names:
               print('Generated C++ preview:',generated[:6000])
