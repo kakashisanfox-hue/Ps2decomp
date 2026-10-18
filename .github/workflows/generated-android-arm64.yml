@@ -39,6 +39,10 @@ jobs:
           RECOMP=$(find upstream/build -type f -name ps2_recomp -executable | head -1)
           "$ANALYZER" /tmp/smoke.elf /tmp/smoke.toml
           "$RECOMP" /tmp/smoke.toml
+      - name: Fetch SSE2NEON compatibility headers
+        run: |
+          git clone --depth 1 https://github.com/DLTcollab/sse2neon.git /tmp/sse2neon
+          test -s /tmp/sse2neon/sse2neon.h
       - name: Cross-compile generated C++ to Android ARM64 objects
         run: |
           python3 - <<'PY'
@@ -62,7 +66,9 @@ jobs:
                     pathlib.Path('upstream/ps2xIOP/include'), pathlib.Path('upstream/ps2xRecomp/include'),
                     pathlib.Path('upstream/third_party'), pathlib.Path('upstream')]
           includes += [h.parent.parent for h in headers if h.parent.name=='Stubs']
-          neon=list(pathlib.Path('upstream').rglob('sse2neon.h'))
+          neon=[pathlib.Path('/tmp/sse2neon/sse2neon.h')]
+          if not neon[0].is_file():
+              raise SystemExit('FAIL: fetched sse2neon.h missing')
           print('sse2neon headers:', [str(p) for p in neon], flush=True)
           includes += [p.parent for p in neon]
           if not neon:
