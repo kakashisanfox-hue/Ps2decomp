@@ -201,6 +201,32 @@ jobs:
           path: /tmp/linker-diagnostics.txt
           if-no-files-found: ignore
           retention-days: 3
+      - name: Test 16 - execute synthetic translated MIPS entry
+        run: |
+          set -euo pipefail
+          cat >/tmp/test16_main.cpp <<'EOF'
+          #include <cstdint>
+          #include <iostream>
+          extern "C" std::int32_t synthetic_mips_entry();
+          int main() {
+            const auto result=synthetic_mips_entry();
+            std::cout << "synthetic_mips_entry() returned " << result << "\\n";
+            return result==42 ? 0 : 1;
+          }
+          EOF
+          clang++ -std=c++17 -Wall -Wextra -Werror \
+            project/android/app/src/main/cpp/mips_sample.cpp \
+            /tmp/test16_main.cpp -o /tmp/test16_native_smoke
+          /tmp/test16_native_smoke
+          python3 - <<'PY'
+          from pathlib import Path
+          bridge=Path('project/android/app/src/main/cpp/bridge.cpp').read_text()
+          sample=Path('project/android/app/src/main/cpp/mips_sample.cpp').read_text()
+          assert 'synthetic_mips_entry() != 42' in bridge, 'JNI bridge does not assert the expected synthetic result'
+          assert 'return static_cast<std::int32_t>(42)' in sample, 'Synthetic entry implementation changed'
+          print('PASS: JNI bridge contract points to the tested synthetic entry')
+          PY
+          echo 'Test 16 executes the synthetic translated MIPS C++ entry on the host and checks the JNI bridge contract. This is NOT execution of PS2Recomp-generated game code or Android runtime.' >> "$GITHUB_STEP_SUMMARY"
       - name: Report
         if: always()
         run: |
