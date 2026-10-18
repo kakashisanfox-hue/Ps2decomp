@@ -1,0 +1,17 @@
+name: Research environment
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/research.yml'
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain information
+        run: |
+          cmake --version
+          clang++ --version
+          java -version
+          echo "Research environment ready; no game code compiled yet."
