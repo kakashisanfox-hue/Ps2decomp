@@ -1,0 +1,12 @@
+*.iso
+*.ISO
+*.bin
+*.elf
+SLUS_*
+SLES_*
+SCES_*
+SCUS_*
+build/
+.gradle/
+local.properties
+*.apk
