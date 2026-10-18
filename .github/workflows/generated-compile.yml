@@ -68,10 +68,16 @@ jobs:
               raise SystemExit('FAIL: no new nonempty .cpp translation units generated')
           # This test intentionally fails if generated code needs more runtime headers
           # or configuration. Never silently treat missing integration as success.
+          header=pathlib.Path('/tmp/output/ps2_recompiled_functions.h')
+          print('Generated header exists:', header.exists(), flush=True)
+          stub_headers=list(pathlib.Path('upstream').rglob('Unimplemented.h'))
+          print('Unimplemented.h candidates:', [str(p) for p in stub_headers], flush=True)
+          include_args=['-I/tmp/output']
+          include_args += ['-I'+str(p.parent.parent) for p in stub_headers if p.parent.name == 'Stubs']
           for unit in units:
               cmd=['clang++','-std=c++20','-fsyntax-only',
                    '-Iupstream/ps2xRuntime/include','-Iupstream/ps2xIOP/include','-Iupstream/ps2xRecomp/include',
-                   '-Iupstream/third_party','-Iupstream',str(unit)]
+                   '-Iupstream/third_party','-Iupstream',*include_args,str(unit)]
               print('Running:', ' '.join(cmd), flush=True)
               result=subprocess.run(cmd, capture_output=True, text=True)
               print('Compiler exit code:', result.returncode, flush=True)
