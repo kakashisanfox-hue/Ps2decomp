@@ -1,0 +1,76 @@
+name: Generated C++ Compile Gate
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/generated-compile.yml'
+jobs:
+  generated-compile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: ran-j/PS2Recomp
+          submodules: recursive
+          path: upstream
+      - name: Install tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ clang lld python3
+      - name: Build PS2Recomp tools
+        run: |
+          cmake -S upstream -B upstream/build -G Ninja -DPS2X_BUILD_RUNTIME=OFF -DPS2X_BUILD_TEST=OFF -DPS2X_BUILD_STUDIO=OFF -DPS2X_BUILD_RECOMP=ON -DPS2X_BUILD_ANALYZER=ON
+          cmake --build upstream/build --parallel 2
+      - name: Make synthetic ELF and generate C++
+        run: |
+          cat >/tmp/smoke.s <<'EOF'
+          .set noreorder
+          .text
+          .globl _start
+          _start:
+            addiu $v0, $zero, 42
+            jr $ra
+            nop
+          EOF
+          clang --target=mipsel-linux-gnu -c /tmp/smoke.s -o /tmp/smoke.o
+          ld.lld -m elf32ltsmip -e _start -Ttext 0x00100000 /tmp/smoke.o -o /tmp/smoke.elf
+          ANALYZER=$(find upstream/build -type f -name ps2_analyzer -executable | head -1)
+          RECOMP=$(find upstream/build -type f -name ps2_recomp -executable | head -1)
+          "$ANALYZER" /tmp/smoke.elf /tmp/smoke.toml
+          touch /tmp/recomp-start.marker
+          "$RECOMP" /tmp/smoke.toml
+      - name: Require and syntax-check generated C++ translation units
+        run: |
+          python3 - <<'PY'
+          import pathlib, subprocess
+          import tomllib
+          cfg=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
+          print('Config:', cfg.get('general'))
+          stamp=pathlib.Path('/tmp/recomp-start.marker').stat().st_mtime_ns
+          units=[]
+          for root in (pathlib.Path('/tmp'), pathlib.Path('upstream')):
+              for p in root.rglob('*.cpp'):
+                  if '.git' in p.parts or 'build' in p.parts:
+                      continue
+                  s=p.stat()
+                  if s.st_size and s.st_mtime_ns > stamp:
+                      units.append(p)
+          print('New C++ translation units:', [str(p) for p in units])
+          if not units:
+              raise SystemExit('FAIL: no new nonempty .cpp translation units generated')
+          # This test intentionally fails if generated code needs more runtime headers
+          # or configuration. Never silently treat missing integration as success.
+          for unit in units:
+              cmd=['clang++','-std=c++20','-fsyntax-only',
+                   '-Iupstream/ps2xRuntime/include','-Iupstream/ps2xRecomp/include',
+                   '-Iupstream/third_party','-Iupstream',str(unit)]
+              print('Running:', ' '.join(cmd), flush=True)
+              subprocess.run(cmd,check=True)
+          print('PASS: generated C++ translation units passed host syntax checks.')
+          PY
+      - name: Report scope
+        if: always()
+        run: |
+          echo 'Host C++ syntax gate for PS2Recomp synthetic ELF; not an Android ARM64 link test.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'A green result does not imply the Downhill game has been recompiled.' >> "$GITHUB_STEP_SUMMARY"
