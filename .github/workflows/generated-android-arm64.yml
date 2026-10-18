@@ -175,8 +175,15 @@ jobs:
           print('PASS: both linked and packaged libraries are valid AArch64 ELF shared objects')
           PY
           NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
-          READELF=$(find "$NDK/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' -type f | head -1)
-          test -x "$READELF"
+          if command -v llvm-readelf >/dev/null 2>&1; then
+            READELF=$(command -v llvm-readelf)
+          elif command -v readelf >/dev/null 2>&1; then
+            READELF=$(command -v readelf)
+          else
+            echo 'FAIL: neither llvm-readelf nor readelf is installed'
+            exit 1
+          fi
+          echo "ELF inspection tool: $READELF"
           "$READELF" -h -d "$LIB" | tee /tmp/test15-elf-inspection.txt
           echo 'PASS: fast offline ELF/APK preflight. Runtime dlopen on Android remains UNTESTED.' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Test 14 research APK
