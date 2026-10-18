@@ -76,7 +76,7 @@ jobs:
           pathlib.Path('/tmp/arm64-objects').mkdir(exist_ok=True)
           for i, unit in enumerate(units):
               obj=pathlib.Path('/tmp/arm64-objects')/f'generated_{i}.o'
-              cmd=[str(compilers[0]),'-std=c++20','-DUSE_SSE2NEON','-c',str(unit),'-o',str(obj)]
+              cmd=[str(compilers[0]),'-std=c++20','-DUSE_SSE2NEON','-fPIC','-c',str(unit),'-o',str(obj)]
               for inc in includes:
                   cmd += ['-I',str(inc)]
               print('Compiling',unit, '->',obj,flush=True)
@@ -85,8 +85,32 @@ jobs:
                   raise SystemExit('FAIL: no ARM64 object output')
           print('PASS: compiled',len(units),'generated C++ files into Android ARM64 objects',flush=True)
           PY
+      - name: Test 13 - strict ARM64 shared library link
+        run: |
+          set -euo pipefail
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          test -n "$NDK"
+          CXX=$(find "$NDK/toolchains/llvm/prebuilt" -path '*/bin/aarch64-linux-android26-clang++' -type f | head -1)
+          test -x "$CXX"
+          test -s /tmp/arm64-objects/generated_0.o
+          echo 'Attempting strict shared-library link of generated objects.'
+          echo 'Any unresolved runtime symbols MUST fail this gate.'
+          "$CXX" -shared -Wl,--no-undefined -Wl,-z,defs \
+            /tmp/arm64-objects/*.o -o /tmp/libdownhill_generated_test.so \
+            2>&1 | tee /tmp/linker-diagnostics.txt
+          test -s /tmp/libdownhill_generated_test.so
+          file /tmp/libdownhill_generated_test.so
+      - name: Upload linker diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test13-linker-diagnostics
+          path: /tmp/linker-diagnostics.txt
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Report
         if: always()
         run: |
           echo 'Test 12 cross-compiles PS2Recomp-generated synthetic ELF C++ into Android ARM64 object files.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Test 13 attempts a strict shared-library link; unresolved PS2 runtime dependencies cause failure.' >> "$GITHUB_STEP_SUMMARY"
           echo 'This is not an Android APK integration or playable Downhill build.' >> "$GITHUB_STEP_SUMMARY"
