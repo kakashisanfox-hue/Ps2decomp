@@ -227,6 +227,32 @@ jobs:
           print('PASS: JNI bridge contract points to the tested synthetic entry')
           PY
           echo 'Test 16 executes the synthetic translated MIPS C++ entry on the host and checks the JNI bridge contract. This is NOT execution of PS2Recomp-generated game code or Android runtime.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Test 17 - verify PS2Recomp-generated ARM64 code is present
+        run: |
+          set -euo pipefail
+          LIB=/tmp/libdownhill_generated_test.so
+          test -s "$LIB"
+          python3 - <<'PY'
+          import pathlib, subprocess, tomllib, re
+          config=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
+          out=pathlib.Path(config['general']['output'])
+          if not out.is_absolute(): out=pathlib.Path.cwd()/out
+          sources=list(out.rglob('*.cpp'))
+          assert sources, 'PS2Recomp did not produce source files'
+          generated='\\n'.join(p.read_text(errors='replace') for p in sources)
+          names=sorted(set(re.findall(r'\\bsub_[0-9a-fA-F]{6,}\\b',generated)))
+          print('Generated function identifiers:',names[:30])
+          assert names, 'No generated MIPS function identifiers detected'
+          ndk=__import__('os').environ.get('ANDROID_NDK_HOME') or __import__('os').environ.get('ANDROID_NDK_ROOT')
+          assert ndk, 'NDK missing'
+          tools=list(pathlib.Path(ndk).glob('toolchains/llvm/prebuilt/*/bin/llvm-nm'))
+          assert tools, 'llvm-nm missing'
+          nm=subprocess.run([str(tools[0]),'-C','--defined-only', '/tmp/libdownhill_generated_test.so'],capture_output=True,text=True,check=True)
+          print('Defined symbols:',nm.stdout[:5000])
+          assert any(n in nm.stdout for n in names), 'Generated MIPS function not present as defined ARM64 symbol'
+          print('PASS: PS2Recomp-generated function is linked into the ARM64 shared object')
+          PY
+          echo 'Test 17 confirms generated PS2Recomp function symbols exist in the ARM64 library; function invocation is not yet proven.' >> "$GITHUB_STEP_SUMMARY"
       - name: Report
         if: always()
         run: |
