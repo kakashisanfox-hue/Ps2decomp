@@ -1,0 +1,58 @@
+name: PS2Recomp Synthetic ELF Smoke Test
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/recomp-smoke.yml'
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout PS2Recomp
+        uses: actions/checkout@v4
+        with:
+          repository: ran-j/PS2Recomp
+          submodules: recursive
+          path: upstream
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake ninja-build g++ clang lld python3
+      - name: Build host tools
+        run: |
+          cmake -S upstream -B upstream/build -G Ninja -DPS2X_BUILD_RUNTIME=OFF -DPS2X_BUILD_TEST=OFF -DPS2X_BUILD_STUDIO=OFF
+          cmake --build upstream/build --parallel 2
+      - name: Generate nonproprietary MIPS ELF
+        run: |
+          cat > /tmp/smoke.s <<'EOF'
+          .set noreorder
+          .text
+          .globl _start
+          _start:
+            addiu $v0, $zero, 42
+            jr $ra
+            nop
+          EOF
+          clang --target=mipsel-linux-gnu -c /tmp/smoke.s -o /tmp/smoke.o
+          ld.lld -m elf32ltsmip -e _start -Ttext 0x00100000 /tmp/smoke.o -o /tmp/smoke.elf
+          file /tmp/smoke.elf
+      - name: Locate tool binaries
+        run: |
+          find upstream/build -type f -executable -print | grep -E 'ps2_(analyzer|recomp)$' | tee /tmp/tools.txt
+          test "$(wc -l < /tmp/tools.txt)" -ge 2
+      - name: Run analyzer
+        run: |
+          ANALYZER=$(find upstream/build -type f -name ps2_analyzer -executable | head -1)
+          "$ANALYZER" /tmp/smoke.elf /tmp/smoke.toml
+          test -s /tmp/smoke.toml
+          cat /tmp/smoke.toml
+      - name: Run recompiler
+        run: |
+          RECOMP=$(find upstream/build -type f -name ps2_recomp -executable | head -1)
+          "$RECOMP" /tmp/smoke.toml
+      - name: Summary
+        if: always()
+        run: |
+          echo 'Synthetic MIPS smoke test: inspect logs for analyzer and recompilation results.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No Downhill game executable was uploaded or processed.' >> "$GITHUB_STEP_SUMMARY"
