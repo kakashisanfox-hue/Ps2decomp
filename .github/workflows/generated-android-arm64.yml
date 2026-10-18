@@ -255,6 +255,39 @@ jobs:
           print('PASS: PS2Recomp-generated function is linked into the ARM64 shared object')
           PY
           echo 'Test 17 confirms generated PS2Recomp function symbols exist in the ARM64 library; function invocation is not yet proven.' >> "$GITHUB_STEP_SUMMARY"
+      - name: Test 18 - inspect generated function ABI for execution harness
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, re, tomllib
+          config=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
+          out=pathlib.Path(config['general']['output'])
+          if not out.is_absolute(): out=pathlib.Path.cwd()/out
+          units=sorted(out.rglob('*.cpp'))
+          assert units, 'No generated translation units'
+          report=[]
+          for unit in units:
+              source=unit.read_text(errors='replace')
+              for match in re.finditer(r'\\b(?:void|int|uint32_t|int32_t)\\s+(sub_[0-9a-fA-F_]+)\\s*\\(([^)]*)\\)\\s*\\{',source):
+                  name,args=match.groups()
+                  report.append(f'{unit}: {name}({args})')
+          if not report:
+              for unit in units:
+                  print(f'--- {unit} ---')
+                  print(unit.read_text(errors='replace')[:4500])
+              raise SystemExit('Could not identify generated function ABI')
+          print('\\n'.join(report))
+          pathlib.Path('/tmp/test18-generated-abi.txt').write_text('\\n'.join(report)+'\\n')
+          print('PASS: generated function ABI identified; execution harness is not yet implemented')
+          PY
+      - name: Upload Test 18 generated ABI report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test18-generated-function-abi
+          path: /tmp/test18-generated-abi.txt
+          if-no-files-found: ignore
+          retention-days: 3
       - name: Report
         if: always()
         run: |
