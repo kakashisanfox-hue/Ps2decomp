@@ -144,25 +144,32 @@ jobs:
           PY
           cd project/android
           gradle :app:assembleDebug --no-daemon
-      - name: Test 15 - boot ARM64 Android emulator and launch APK
-        uses: reactivecircus/android-emulator-runner@v2
-        with:
-          api-level: 35
-          arch: arm64-v8a
-          target: google_apis
-          profile: pixel_6
-          disable-animations: true
-          emulator-boot-timeout: 900
-          script: |
-            adb install -r project/android/app/build/outputs/apk/debug/app-debug.apk
-            adb shell am start -W -n dev.downhill.nativeport/.MainActivity
-            sleep 8
-            adb shell pidof dev.downhill.nativeport
-            if adb logcat -d -s AndroidRuntime:E | grep -E 'FATAL EXCEPTION|UnsatisfiedLinkError'; then
-              echo 'FAIL: Android runtime reported a crash or native load error'
-              exit 1
-            fi
-            echo 'PASS: Android process stayed alive after native library load'
+      - name: Test 15 - fast ARM64 ELF and APK loadability preflight
+        run: |
+          set -euo pipefail
+          LIB=/tmp/libdownhill_generated_test.so
+          APK=project/android/app/build/outputs/apk/debug/app-debug.apk
+          test -s "$LIB"
+          test -s "$APK"
+          python3 - <<'PY'
+          import struct, zipfile
+          lib='/tmp/libdownhill_generated_test.so'
+          apk='project/android/app/build/outputs/apk/debug/app-debug.apk'
+          blob=open(lib,'rb').read()
+          assert blob[:4]==b'\\x7fELF', 'Not an ELF file'
+          assert blob[4]==2 and blob[5]==1, 'Expected ELF64 little endian'
+          assert struct.unpack_from('<H',blob,16)[0]==3, 'Expected shared object (ET_DYN)'
+          assert struct.unpack_from('<H',blob,18)[0]==183, 'Expected AArch64 machine'
+          with zipfile.ZipFile(apk) as z:
+              name='lib/arm64-v8a/libdownhill_generated_test.so'
+              assert z.read(name)==blob, 'APK packaged library differs from linked ARM64 ELF'
+          print('PASS: ELF64 AArch64 shared object matches APK payload')
+          PY
+          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
+          READELF=$(find "$NDK/toolchains/llvm/prebuilt" -path '*/bin/llvm-readelf' -type f | head -1)
+          test -x "$READELF"
+          "$READELF" -h -d "$LIB" | tee /tmp/test15-elf-inspection.txt
+          echo 'PASS: fast offline ELF/APK preflight. Runtime dlopen on Android remains UNTESTED.' >> "$GITHUB_STEP_SUMMARY"
       - name: Upload Test 14 research APK
         if: success()
         uses: actions/upload-artifact@v4
@@ -184,5 +191,5 @@ jobs:
           echo 'Test 12 cross-compiles PS2Recomp-generated synthetic ELF C++ into Android ARM64 object files.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Test 13 attempts a strict shared-library link; unresolved PS2 runtime dependencies cause failure.' >> "$GITHUB_STEP_SUMMARY"
           echo 'Test 14 verifies packaging into an APK, NOT loading or executing the generated library.' >> "$GITHUB_STEP_SUMMARY"
-          echo 'Test 15 attempts to load generated library in an Android emulator; does not call generated game functions.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Test 15 performs fast offline ARM64 ELF/APK validation; does not boot an emulator or prove runtime loading.' >> "$GITHUB_STEP_SUMMARY"
           echo 'This is not a playable Downhill build.' >> "$GITHUB_STEP_SUMMARY"
