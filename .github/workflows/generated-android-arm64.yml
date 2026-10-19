@@ -289,53 +289,31 @@ jobs:
           path: /tmp/test18-generated-abi.txt
           if-no-files-found: ignore
           retention-days: 3
-      - name: Test 19 - execute ARM64 loader and resolve generated symbol
+      - name: Test 19 - validate generated ARM64 symbol without Android loader
         run: |
           set -euo pipefail
-          sudo apt-get install -y qemu-user
-          NDK="${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}"
-          CXX=$(find "$NDK/toolchains/llvm/prebuilt" -path '*/bin/aarch64-linux-android26-clang++' -type f | head -1)
-          test -x "$CXX"
-          cat >/tmp/test19_loader.cpp <<'EOF'
-          #include <dlfcn.h>
-          #include <cstdio>
-          int main(int argc, char** argv) {
-            if (argc != 3) return 2;
-            void* library = dlopen(argv[1], RTLD_NOW | RTLD_LOCAL);
-            if (!library) { std::fprintf(stderr, "dlopen: %s\\n", dlerror()); return 3; }
-            void* symbol = dlsym(library, argv[2]);
-            if (!symbol) { std::fprintf(stderr, "dlsym: %s\\n", dlerror()); return 4; }
-            std::printf("PASS: ARM64 library loaded; symbol resolved: %s\\n", argv[2]);
-            dlclose(library);
-            return 0;
-          }
-          EOF
-          "$CXX" -std=c++17 -fPIE -pie /tmp/test19_loader.cpp -ldl -o /tmp/test19_loader
           python3 - <<'PY'
-          import pathlib, subprocess, tomllib, re
+          import os, pathlib, re, subprocess, tomllib
           config=tomllib.loads(pathlib.Path('/tmp/smoke.toml').read_text())
           out=pathlib.Path(config['general']['output'])
           if not out.is_absolute(): out=pathlib.Path.cwd()/out
           names=set()
           for unit in out.rglob('*.cpp'):
               names.update(re.findall(r'\bsub_[0-9a-fA-F]{6,}(?:_0x[0-9a-fA-F]+)?\b',unit.read_text(errors='replace')))
-          if not names: raise SystemExit('No generated functions to probe')
-          print('Generated names:',sorted(names))
-          ndk=__import__('os').environ.get('ANDROID_NDK_HOME') or __import__('os').environ.get('ANDROID_NDK_ROOT')
+          assert names, 'No generated functions detected'
+          ndk=os.environ.get('ANDROID_NDK_HOME') or os.environ.get('ANDROID_NDK_ROOT')
+          assert ndk, 'NDK unavailable'
           nm=list(pathlib.Path(ndk).glob('toolchains/llvm/prebuilt/*/bin/llvm-nm'))
-          if not nm: raise SystemExit('llvm-nm unavailable')
-          symbols=subprocess.run([str(nm[0]),'-D','--defined-only','/tmp/libdownhill_generated_test.so'],text=True,capture_output=True,check=True).stdout
-          matched=[line.split()[-1] for line in symbols.splitlines() if any(name in line for name in names)]
-          if not matched: raise SystemExit('No generated function exported for dlsym')
-          pathlib.Path('/tmp/test19-symbol.txt').write_text(matched[0])
-          print('Exported symbol:',matched[0])
+          assert nm, 'llvm-nm unavailable'
+          lib='/tmp/libdownhill_generated_test.so'
+          result=subprocess.run([str(nm[0]),'-D','--defined-only',lib],capture_output=True,text=True,check=True)
+          exports=[line.split()[-1] for line in result.stdout.splitlines() if line.split()]
+          matched=[sym for sym in exports if any(name in sym for name in names)]
+          assert matched, 'No generated MIPS function exported by ARM64 shared library'
+          print('PASS: generated ARM64 symbols exported:',matched)
+          print('NOTE: no dlopen or function execution; Android /system/bin/linker64 unavailable on Ubuntu runner')
           PY
-          SYMBOL=$(cat /tmp/test19-symbol.txt)
-          SYSROOT=$(find "$NDK/toolchains/llvm/prebuilt" -path '*/sysroot' -type d | head -1)
-          test -n "$SYSROOT"
-          echo 'Attempting ARM64 Android binary under qemu-user; Android Bionic loader may not be supported.'
-          qemu-aarch64 -L "$SYSROOT" /tmp/test19_loader /tmp/libdownhill_generated_test.so "$SYMBOL"
-          echo 'Test 19 PASS: ARM64 loader executed and generated symbol resolved; function body NOT called.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Test 19 verifies exported generated ARM64 symbols only; Android loading and execution remain untested.' >> "$GITHUB_STEP_SUMMARY"
       - name: Report
         if: always()
         run: |
