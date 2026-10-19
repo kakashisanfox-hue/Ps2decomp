@@ -318,7 +318,7 @@ jobs:
           if not out.is_absolute(): out=pathlib.Path.cwd()/out
           names=set()
           for unit in out.rglob('*.cpp'):
-              names.update(re.findall(r'\\bsub_[0-9a-fA-F]{6,}(?:_0x[0-9a-fA-F]+)?\\b',unit.read_text(errors='replace')))
+              names.update(re.findall(r'\bsub_[0-9a-fA-F]{6,}(?:_0x[0-9a-fA-F]+)?\b',unit.read_text(errors='replace')))
           if not names: raise SystemExit('No generated functions to probe')
           print('Generated names:',sorted(names))
           ndk=__import__('os').environ.get('ANDROID_NDK_HOME') or __import__('os').environ.get('ANDROID_NDK_ROOT')
