@@ -26,11 +26,27 @@ class CallGraphTests(unittest.TestCase):
         self.assertEqual(result['direct_call_sites'],1)
         self.assertEqual(result['top_call_targets'][0]['address'],'0x100008')
         self.assertEqual(result['return_instruction_candidates'],1)
+        self.assertEqual(result['function_entry_candidates'], ['0x100000','0x100008'])
+        self.assertEqual(result['direct_call_edges'][0]['source'], '0x100000')
+        self.assertEqual(result['direct_call_edges'][0]['inside_text'], True)
+        self.assertEqual(result['external_direct_call_count'], 0)
+        self.assertEqual(len(result['input_sha256']), 64)
 
     def test_indirect_call_and_branch(self):
         result=inspect(make_elf([0x0320f809,0x1000ffff,0,0]))
         self.assertEqual(result['indirect_call_sites'],1)
         self.assertEqual(result['conditional_branch_count'],1)
+
+    def test_outside_text_call(self):
+        result=inspect(make_elf([0x0c080000,0,0x03e00008,0]))
+        self.assertEqual(result['direct_call_sites'],0)
+        self.assertEqual(result['external_direct_call_count'],1)
+        self.assertEqual(result['external_direct_calls'][0]['target'],'0x200000')
+
+    def test_limit_report(self):
+        result=inspect(make_elf([0x0c040002,0,0x03e00008,0]),limit=0)
+        self.assertEqual(result['direct_call_edges'],[])
+        self.assertEqual(result['function_entry_candidates'],['0x100000','0x100008'])
 
     def test_rejects_invalid_input(self):
         with self.assertRaises(ValueError):
