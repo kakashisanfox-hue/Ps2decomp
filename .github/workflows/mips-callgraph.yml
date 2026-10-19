@@ -1,0 +1,22 @@
+name: Downhill ELF Control Flow Analysis
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tools/mips_callgraph.py'
+      - 'tests/test_mips_callgraph.py'
+      - '.github/workflows/mips-callgraph.yml'
+jobs:
+  offline-analysis-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Python analyzer and synthetic MIPS ELF tests
+        run: |
+          python3 -m py_compile tools/mips_callgraph.py
+          python3 -m unittest discover -s tests -p test_mips_callgraph.py -v
+      - name: Report boundaries
+        run: |
+          echo 'MIPS ELF function-call discovery tool and synthetic fixture tests passed.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'No copyrighted Downhill executable was uploaded or analyzed in CI.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Actual game function recovery, runtime and graphics are still pending.' >> "$GITHUB_STEP_SUMMARY"
