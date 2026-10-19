@@ -4,7 +4,9 @@ on:
   push:
     paths:
       - 'tools/mips_callgraph.py'
+      - 'tools/mips_function_map.py'
       - 'tests/test_mips_callgraph.py'
+      - 'tests/test_mips_function_map.py'
       - '.github/workflows/mips-callgraph.yml'
 jobs:
   offline-analysis-tests:
@@ -13,8 +15,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Verify Python analyzer and synthetic MIPS ELF tests
         run: |
-          python3 -m py_compile tools/mips_callgraph.py
-          python3 -m unittest discover -s tests -p test_mips_callgraph.py -v
+          python3 -m py_compile tools/mips_callgraph.py tools/mips_function_map.py
+          python3 -m unittest discover -s tests -p 'test_mips_*.py' -v
       - name: Report boundaries
         run: |
           echo 'MIPS ELF function-call discovery tool and synthetic fixture tests passed.' >> "$GITHUB_STEP_SUMMARY"
