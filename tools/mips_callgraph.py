@@ -3,6 +3,7 @@
 import argparse
 import collections
 import json
+import hashlib
 import struct
 from pathlib import Path
 
@@ -37,6 +38,10 @@ def inspect(data: bytes, limit=250):
         raise ValueError("Entry outside .text")
     words = struct.unpack_from("<" + "I" * (size // 4), data, offset)
     calls = collections.Counter()
+    call_sites = []
+    out_of_text_calls = []
+    branch_targets = set()
+    jump_targets = set()
     edges = collections.Counter()
     indirect_calls = []
     returns = []
@@ -46,10 +51,16 @@ def inspect(data: bytes, limit=250):
         op = word >> 26
         if op in (2, 3):
             target = ((pc + 4) & 0xf0000000) | ((word & 0x03ffffff) << 2)
+            if op == 3:
+                call_sites.append({'source': hex(pc), 'target': hex(target), 'inside_text': base <= target < base + size})
+                if not base <= target < base + size:
+                    out_of_text_calls.append({'source': hex(pc), 'target': hex(target)})
             if base <= target < base + size:
                 edges[(pc, target)] += 1
                 if op == 3:
                     calls[target] += 1
+                else:
+                    jump_targets.add(target)
         elif op == 0:
             funct = word & 63
             rs = (word >> 21) & 31
@@ -65,8 +76,10 @@ def inspect(data: bytes, limit=250):
             target = (pc + 4 + (displacement << 2)) & 0xffffffff
             if base <= target < base + size:
                 edges[(pc, target)] += 1
+                branch_targets.add(target)
     ranked = sorted(calls.items(), key=lambda x: (-x[1], x[0]))
     return {
+        "input_sha256": hashlib.sha256(data).hexdigest(),
         "entry": hex(entry), "text_start": hex(base), "text_end": hex(base + size),
         "instruction_count": len(words), "direct_call_sites": sum(calls.values()),
         "unique_direct_call_targets": len(calls),
@@ -74,6 +87,15 @@ def inspect(data: bytes, limit=250):
         "indirect_call_sites": len(indirect_calls), "return_instruction_candidates": len(returns),
         "top_call_targets": [{"address": hex(addr), "call_sites": hits} for addr, hits in ranked[:limit]],
         "entry_in_call_targets": entry in calls,
+        "function_entry_candidates": [hex(a) for a in sorted({entry, *calls.keys()})],
+        "jump_target_count": len(jump_targets),
+        "branch_target_count": len(branch_targets),
+        "external_direct_calls": out_of_text_calls[:limit],
+        "external_direct_call_count": len(out_of_text_calls),
+        "direct_call_edges": call_sites[:limit],
+        "indirect_call_addresses": indirect_calls[:limit],
+        "return_addresses": returns[:limit],
+        "report_limit": limit,
         "notes": [
             "Static instruction decoding only: data words inside .text may produce false positives.",
             "Indirect calls, delay slots, function boundaries and jump tables require further analysis.",
@@ -85,8 +107,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("elf", type=Path)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--limit", type=int, default=250)
     args = parser.parse_args()
-    result = inspect(args.elf.read_bytes())
+    if args.limit < 0 or args.limit > 100000:
+        parser.error("--limit must be between 0 and 100000")
+    result = inspect(args.elf.read_bytes(), args.limit)
     payload = json.dumps(result, indent=2) + "\n"
     if args.output:
         args.output.write_text(payload)
