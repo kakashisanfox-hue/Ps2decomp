@@ -46,15 +46,53 @@ def translate(w,pc):
             expr={33:f'uint32_t(s.r[{rs}])+uint32_t(s.r[{rt}])',35:f'uint32_t(s.r[{rs}])-uint32_t(s.r[{rt}])',36:f's.r[{rs}]&s.r[{rt}]',37:f's.r[{rs}]|s.r[{rt}]',38:f's.r[{rs}]^s.r[{rt}]'}[fn]
             value=f'int64_t(int32_t({expr}))' if fn in (33,35) else expr
             return f's.r[{rd}]={value}; s.pc=0x{nextpc:08x}u; return true;'
+    if op in (2,3,4,5,6,7):
+        if op in (2,3):
+            target=((pc+4)&0xf0000000)|((w&0x3ffffff)<<2)
+            condition='true'
+            link='s.r[31]=0x%08xu; '%(pc+8) if op==3 else ''
+        else:
+            target=(pc+4+imm*4)&0xffffffff
+            condition={4:f's.r[{rs}]==s.r[{rt}]',
+                       5:f's.r[{rs}]!=s.r[{rt}]',
+                       6:f'int64_t(s.r[{rs}])<=0',
+                       7:f'int64_t(s.r[{rs}])>0'}[op]
+            link=''
+        return (f'{link}s.pending=true; s.target=({condition})?'
+                f'0x{target:08x}u:0x{pc+8:08x}u; '
+                f's.pc=0x{pc+4:08x}u; return true;')
+    if op==0 and fn in (8,9):
+        link=f's.r[{rd}]=0x{pc+8:08x}u; ' if fn==9 and rd else ''
+        return (f'uint32_t jump=uint32_t(s.r[{rs}]); {link}'
+                f's.pending=true; s.target=jump; s.pc=0x{pc+4:08x}u; return true;')
     if op in (9,12,13,14,15):
         expr={9:f'int64_t(int32_t(uint32_t(s.r[{rs}])+uint32_t({imm})))',12:f's.r[{rs}]&{w&65535}u',13:f's.r[{rs}]|{w&65535}u',14:f's.r[{rs}]^{w&65535}u',15:f'int64_t(int32_t({(w&65535)<<16}u))'}[op]
         return f's.r[{rt}]={expr}; s.pc=0x{nextpc:08x}u; return true;'
-    # Branches require precise delay-slot execution; do not miscompile them.
+    if op in (32,33,35,36,37):
+        width={32:1,33:2,35:4,36:1,37:2}[op]
+        signed=op in (32,33,35)
+        return (f'uint64_t value=0; if(!s.load(s.ctx,uint32_t(s.r[{rs}]+({imm})),'
+                f'{width},value)) return false; '
+                f's.r[{rt}]='+ (f'int64_t(int{width*8}_t(value))' if signed else 'value')+
+                f'; s.pc=0x{nextpc:08x}u; return true;')
+    if op in (40,41,43):
+        width={40:1,41:2,43:4}[op]
+        return (f'if(!s.store(s.ctx,uint32_t(s.r[{rs}]+({imm})),'
+                f'{width},s.r[{rt}])) return false; '
+                f's.pc=0x{nextpc:08x}u; return true;')
+    # Unhandled R5900/MMI instructions remain explicit faults.
     return None
 
 HEADER='''// Generated from private PS2 ELF. Do not redistribute proprietary output.
 #include <cstdint>
-struct RecompState { uint64_t r[32]{}; uint32_t pc=0; uint32_t fault_pc=0; uint32_t fault_word=0; };
+struct RecompState {
+    uint64_t r[32]{};
+    uint32_t pc=0, fault_pc=0, fault_word=0, target=0;
+    bool pending=false;
+    void* ctx=nullptr;
+    bool (*load)(void*,uint32_t,unsigned,uint64_t&)=nullptr;
+    bool (*store)(void*,uint32_t,unsigned,uint64_t)=nullptr;
+};
 extern "C" bool downhill_recompiled_step(RecompState& s) {
     s.r[0]=0;
     switch(s.pc) {
@@ -70,6 +108,9 @@ def generate(blob):
     for i,w in enumerate(words):
         pc=base+4*i
         code=translate(w,pc)
+        if code is not None:
+            # Complete the preceding branch after executing exactly one delay slot.
+            code=code.replace('return true;', 'if(finishing_delay) s.pc=delayed_target; return true;')
         if code is None:
             lines.append(f'    case 0x{pc:08x}u: s.fault_pc=s.pc; s.fault_word=0x{w:08x}u; return false;\n')
         else:
