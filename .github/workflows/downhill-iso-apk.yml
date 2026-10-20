@@ -18,6 +18,15 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10.2'
+      - name: Install required Android SDK and NDK
+        run: |
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(command -v sdkmanager)"
+          fi
+          yes | "$SDKMANAGER" --licenses > /dev/null || true
+          "$SDKMANAGER" --install 'platforms;android-35' 'build-tools;35.0.0' 'cmake;3.22.1' 'ndk;27.0.12077973'
+          test -f "$ANDROID_HOME/ndk/27.0.12077973/source.properties"
       - name: Compile Android ARM64 APK
         working-directory: android
         run: gradle :app:assembleDebug --no-daemon --stacktrace
