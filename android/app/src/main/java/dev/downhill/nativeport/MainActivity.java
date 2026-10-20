@@ -133,12 +133,13 @@ public final class MainActivity extends Activity {
                     if(current==null)throw new IllegalArgumentException("Executable not found: "+part);
                 }
                 if(current.directory || current.size<52)throw new IllegalArgumentException("Invalid executable");
-                byte[] elf=read(ch,current.lba*2048,52);
+                byte[] elf=read(ch,current.lba*2048,(int)current.size);
                 if(elf[0]!=127||elf[1]!='E'||elf[2]!='L'||elf[3]!='F')
                     throw new IllegalArgumentException("BOOT target is not ELF");
                 ByteBuffer head=ByteBuffer.wrap(elf).order(ByteOrder.LITTLE_ENDIAN);
                 int machine=head.getShort(18)&65535;
                 long entry=head.getInt(24)&0xffffffffL;
+                String nativeReport=nativeProbe(elf);
                 String report="ISO9660: OK\nSYSTEM.CNF: OK\nBOOT: "+path+
                     "\nELF class: "+(elf[4]&255)+"\nMachine: "+machine+
                     "\nEntry: 0x"+Long.toHexString(entry).toUpperCase(Locale.ROOT)+
