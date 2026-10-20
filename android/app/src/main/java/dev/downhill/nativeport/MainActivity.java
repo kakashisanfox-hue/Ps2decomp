@@ -26,6 +26,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class MainActivity extends Activity {
+    static { System.loadLibrary("downhill_bridge"); }
+    private static native String nativeProbe(byte[] elf);
+
     private static final int PICK_ISO = 410;
     private TextView log;
     private LinearLayout root;
