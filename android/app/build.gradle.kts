@@ -2,6 +2,7 @@ plugins { id("com.android.application") }
 android {
     namespace = "dev.downhill.nativeport"
     compileSdk = 35
+    ndkVersion = "27.0.12077973"
     defaultConfig {
         applicationId = "dev.downhill.nativeport"
         minSdk = 26
