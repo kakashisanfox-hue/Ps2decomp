@@ -143,7 +143,7 @@ public final class MainActivity extends Activity {
                 String report="ISO9660: OK\nSYSTEM.CNF: OK\nBOOT: "+path+
                     "\nELF class: "+(elf[4]&255)+"\nMachine: "+machine+
                     "\nEntry: 0x"+Long.toHexString(entry).toUpperCase(Locale.ROOT)+
-                    "\nSize: "+current.size+" bytes\n\nISO successfully inspected. Game execution is NOT implemented.";
+                    "\nSize: "+current.size+" bytes\n\n"+nativeReport;
                 runOnUiThread(()->{isoValidated=true;elfSummary=report;log.setText(report);});
             }catch(Exception ex){
                 runOnUiThread(()->log.setText("Falha ao analisar ISO: "+ex.getMessage()));
